@@ -114,7 +114,7 @@ Les manifests utilisent `g4ss99/spring-app:1.0` et `g4ss99/angular-app:1.0` avec
 | `secret.yaml` | Secret `spring-secret` (utilisateur, mot de passe, mot de passe root MySQL) en `data:` **encodé base64**, **valeurs fictives** |
 | `mysql-storage.yaml` | PersistentVolume `mysql-pv` (2Gi, hostPath, `Retain`) + PersistentVolumeClaim `mysql-pvc` (demande 1Gi), classe `manual` |
 | `mysql-deployment.yaml` | MySQL 8, `/var/lib/mysql` monté sur le PVC `mysql-pvc`, stratégie `Recreate` + Service **ClusterIP** `mysql-service` (communication interne uniquement) |
-| `spring-deployment.yaml` | 2 réplicas, `configMapKeyRef`/`secretKeyRef`, initContainer qui attend MySQL, sondes `/actuator/health`, Service **ClusterIP** |
+| `spring-deployment.yaml` | 2 réplicas, `configMapKeyRef`/`secretKeyRef`, initContainer qui attend MySQL, sondes `/actuator/health/readiness` et `/actuator/health/liveness` (indépendantes de MySQL), Service **ClusterIP** |
 | `angular-deployment.yaml` | 2 réplicas Nginx, `config.js` monté depuis le ConfigMap, Service **ClusterIP** |
 | `tools/pv-inspector.yaml` | Pod utilitaire `busybox` qui monte `mysql-pvc` en lecture seule sur `/data` (utilisé par `scripts/pv-content.sh`, non appliqué par `kubectl apply -f k8s/`) |
 | `ingress.yaml` | Ingress `angular-ingress` (`/`) et `spring-ingress` (`/api/user/...` réécrit en `/user/...`), classe `nginx` |

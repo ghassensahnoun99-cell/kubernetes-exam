@@ -52,15 +52,18 @@ spec:
                 secretKeyRef:
                   name: spring-secret
                   key: SPRING_DATASOURCE_PASSWORD
+          # Groupes de santé Kubernetes de Spring Boot (activés automatiquement dans un cluster) : ils ne
+          # dépendent pas de MySQL. /actuator/health inclut la base : après un redémarrage de MySQL il répond
+          # lentement, Kubernetes retirerait alors tous les Pods du Service (503) et la liveness les tuerait.
           readinessProbe:
             httpGet:
-              path: /actuator/health
+              path: /actuator/health/readiness
               port: 8081
             initialDelaySeconds: 20
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /actuator/health
+              path: /actuator/health/liveness
               port: 8081
             initialDelaySeconds: 60
             periodSeconds: 20
