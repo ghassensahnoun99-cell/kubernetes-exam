@@ -1,0 +1,22 @@
+# Données NON sensibles. Cluster local Docker Desktop : l'Ingress est joignable sur http://localhost.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spring-config
+data:
+  SERVER_PORT: "8081"
+  SPRING_DATASOURCE_URL: "jdbc:mysql://mysql-service:3306/demo"
+  MYSQL_DATABASE: "demo"
+  # Front et API partagent l'origine de l'Ingress : appels same-origin, CORS gardé par sécurité
+  CORS_ALLOWED_ORIGINS: "http://localhost"
+---
+# Configuration d'exécution du front-end : servie par Nginx en /assets/config.js
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: angular-config
+data:
+  config.js: |
+    window.__env = window.__env || {};
+    // URL relative : l'API est servie par l'Ingress sous /api, sur le même hôte que le front
+    window.__env.apiUrl = '/api';

@@ -1,0 +1,40 @@
+# Stockage persistant de MySQL : provisionnement STATIQUE.
+# L'administrateur crée le PV (le disque), l'application le réclame avec un PVC (la demande).
+# storageClassName "manual" (aucune StorageClass de ce nom) : le PVC ne peut se lier qu'à ce PV,
+# au lieu d'obtenir un volume dynamique de la StorageClass par défaut de Docker Desktop (hostpath).
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mysql-pv
+  labels:
+    app: mysql
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteOnce
+  # Retain : supprimer le PVC ne supprime pas les données du disque
+  persistentVolumeReclaimPolicy: Retain
+  # Répertoire sur le nœud (VM Docker Desktop) : convient à un cluster mono-nœud.
+  # hostPath n'applique aucun quota : "capacity" sert à la mise en correspondance PV/PVC.
+  hostPath:
+    path: /var/lib/mysql-pv
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pvc
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  # Taille demandée : Kubernetes lie le PVC à un PV de même classe et de capacité >= 1Gi.
+  # Un PV n'est jamais partagé entre plusieurs PVC : celui-ci obtient tout mysql-pv (2Gi).
+  resources:
+    requests:
+      storage: 1Gi
+  selector:
+    matchLabels:
+      app: mysql

@@ -1,0 +1,26 @@
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.3.0/css/all.min.css">
+
+<div class="centered-div">
+  <table class="table-container">
+    <thead>
+      <tr>
+        <td class="td">ID Nouran Zouabi</td>
+        <td class="td">First Name</td>
+        <td class="td">Last Name</td>
+        <td class="td">Action</td>
+      </tr>
+    </thead>
+    <tbody>
+      <tr *ngFor="let user of usersList">
+        <td class="td">{{user.id}}</td>
+        <td class="td">{{user.firstName}}</td>
+        <td class="td">{{user.lastName}}</td>
+        <td> <i class="fa fa-trash" aria-hidden="true" (click)="deleteUser(user?.id || '')"></i></td>
+      </tr>
+    </tbody>
+  </table>
+  <input type="text" placeholder="First Name" #firstname>
+  <input type="text" placeholder="Last Name" #lastname style="margin-top: 10px;">
+  <button (click)="addUser(firstname.value,lastname.value)" style="margin-top: 30px;">add User</button>
+
+</div>

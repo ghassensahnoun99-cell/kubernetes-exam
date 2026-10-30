@@ -1,0 +1,43 @@
+# Point d'entrée unique du cluster : contrôleur ingress-nginx (IngressClass "nginx").
+# Docker Desktop publie le Service LoadBalancer du contrôleur sur http://localhost (port 80).
+#   http://localhost/              -> angular-service:80
+#   http://localhost/api/user/...  -> spring-service:8081/user/...
+# Pas de "host" : les règles s'appliquent aussi à 127.0.0.1 ou à l'IP d'un nœud.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: spring-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    # /api/user/all -> /user/all : Spring Boot ne connaît pas le préfixe /api.
+    # Seul /user est publié : /actuator (env, heapdump...) reste interne au cluster.
+    nginx.ingress.kubernetes.io/rewrite-target: $1
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /api(/user/.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: spring-service
+                port:
+                  number: 8081
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: angular-ingress
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: angular-service
+                port:
+                  number: 80

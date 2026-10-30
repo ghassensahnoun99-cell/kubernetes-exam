@@ -1,0 +1,4 @@
+# Exports du PV (scripts/pv-content.sh) : données de la base et clés TLS de MySQL, jamais dans Git
+pv-backup/
+
+.DS_Store

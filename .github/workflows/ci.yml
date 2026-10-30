@@ -1,0 +1,154 @@
+# Build des images, déploiement sur un cluster Kubernetes éphémère (kind) avec les manifests k8s/,
+# tests via l'Ingress, test de persistance du PV, puis publication sur Docker Hub depuis main.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Mêmes noms que dans k8s/*-deployment.yaml (imagePullPolicy: IfNotPresent) : kind utilise les images chargées
+  SPRING_IMAGE: g4ss99/spring-app
+  ANGULAR_IMAGE: g4ss99/angular-app
+  IMAGE_TAG: "1.0"
+
+jobs:
+  build-deploy-test:
+    name: Build, déploiement Kubernetes et tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      # Publication seulement sur push vers main, et seulement si les secrets Docker Hub sont configurés
+      PUSH_IMAGES: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.DOCKERHUB_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Java 17 (Temurin)
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: springboot/app/pom.xml
+
+      - name: Build du jar Spring Boot
+        working-directory: springboot/app
+        run: ./mvnw -B package -DskipTests
+
+      - uses: docker/setup-buildx-action@v4
+
+      # provenance/sbom désactivés : une image simple (sans manifest d'attestation) se charge sans souci dans kind
+      - name: Image Spring Boot
+        uses: docker/build-push-action@v7
+        with:
+          context: springboot/app
+          load: true
+          provenance: false
+          sbom: false
+          tags: |
+            ${{ env.SPRING_IMAGE }}:${{ env.IMAGE_TAG }}
+            ${{ env.SPRING_IMAGE }}:sha-${{ github.sha }}
+          cache-from: type=gha,scope=spring
+          cache-to: type=gha,scope=spring,mode=max
+
+      - name: Image Angular
+        uses: docker/build-push-action@v7
+        with:
+          context: angular-app
+          load: true
+          provenance: false
+          sbom: false
+          tags: |
+            ${{ env.ANGULAR_IMAGE }}:${{ env.IMAGE_TAG }}
+            ${{ env.ANGULAR_IMAGE }}:sha-${{ github.sha }}
+          cache-from: type=gha,scope=angular
+          cache-to: type=gha,scope=angular,mode=max
+
+      - name: Cluster Kubernetes (kind)
+        uses: helm/kind-action@v1.15.1
+        with:
+          cluster_name: exam
+          config: ci/kind-config.yaml
+
+      - name: Chargement des images dans le cluster
+        run: kind load docker-image "$SPRING_IMAGE:$IMAGE_TAG" "$ANGULAR_IMAGE:$IMAGE_TAG" --name exam
+
+      - name: Déploiement (Ingress, ConfigMap, Secret, PV/PVC, MySQL, Spring Boot, Angular)
+        run: scripts/deploy.sh
+        env:
+          INGRESS_PROVIDER: kind
+
+      - name: Tests de bout en bout via l'Ingress
+        run: scripts/smoke-test.sh
+
+      - name: Persistance du PV (recréation du Pod MySQL)
+        run: |
+          curl -fsS -X POST http://localhost/api/user/add -H 'Content-Type: application/json' \
+            -d '{"firstName":"Persist","lastName":"Test"}'
+          echo
+          kubectl delete pod -l app=mysql --wait=true
+          # Le nouveau Pod démarre sur le même PV : la ligne doit toujours être là
+          for _ in $(seq 1 60); do
+            # shellcheck disable=SC2016  # variables développées dans le Pod MySQL
+            if rows=$(kubectl exec deploy/mysql -- sh -c \
+              'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -e "SELECT first_name FROM demo.user"' 2>/dev/null); then
+              break
+            fi
+            sleep 5
+          done
+          echo "$rows"
+          grep -qx Persist <<<"$rows"
+
+      - name: Application de nouveau disponible après le redémarrage de MySQL
+        run: scripts/smoke-test.sh
+
+      - name: Récupération du contenu du PV
+        run: |
+          mkdir -p pv-backup
+          scripts/pv-content.sh ls | tee pv-backup/pv-listing.txt
+          scripts/pv-content.sh dump pv-backup
+          scripts/pv-content.sh copy pv-backup
+
+      # Export SQL et listing seulement : la copie brute contient aussi les clés TLS générées par MySQL
+      - name: Artefact pv-backup
+        uses: actions/upload-artifact@v7
+        with:
+          name: pv-backup
+          path: |
+            pv-backup/*.sql
+            pv-backup/pv-listing.txt
+          retention-days: 7
+
+      - name: Diagnostic en cas d'échec
+        if: failure()
+        run: |
+          kubectl get all,ingress,pv,pvc -A -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp || true
+          kubectl logs deploy/spring-app --all-containers --tail=200 || true
+          kubectl logs deploy/mysql --tail=100 || true
+          kubectl -n ingress-nginx logs deploy/ingress-nginx-controller --tail=100 || true
+
+      - name: Connexion à Docker Hub
+        if: env.PUSH_IMAGES == 'true'
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Publication des images sur Docker Hub
+        if: env.PUSH_IMAGES == 'true'
+        run: |
+          for image in "$SPRING_IMAGE" "$ANGULAR_IMAGE"; do
+            docker push "$image:$IMAGE_TAG"
+            docker push "$image:sha-$GITHUB_SHA"
+          done

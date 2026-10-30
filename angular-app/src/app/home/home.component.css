@@ -1,0 +1,34 @@
+.centered-div {
+  /* Styles for the centered <div> */
+  display: flex;
+  flex-direction: column; /* Stack elements vertically */
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background-color: #f0f0f0; /* Optional background color for the <div> */
+}
+
+.table-container {
+  /* Styles for the container of the centered <table> */
+  background-color: #6be03d; /* Optional background color for the container */
+  padding: 20px;
+  border: 1px solid #ccc; /* Optional border for the container */
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.2); /* Optional box shadow for the container */
+  text-align: center; /* Optional text alignment */
+  margin-bottom: 20px; /* Add margin to separate the container and button */
+}
+
+button {
+  /* Styles for the button */
+  background-color: #6be03d; /* Button background color */
+  color: #fff; /* Button text color */
+  padding: 10px 20px;
+  border: none;
+  cursor: pointer;
+}
+
+.fa-trash {
+  color: red; /* Change the icon color */
+  font-size: 15px; /* Adjust the icon size */
+  cursor: pointer; /* Add a pointer cursor to indicate it's clickable */
+}
