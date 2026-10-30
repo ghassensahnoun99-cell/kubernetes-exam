@@ -73,6 +73,16 @@ jobs:
           cache-from: type=gha,scope=angular
           cache-to: type=gha,scope=angular,mode=max
 
+      # Les runners Ubuntu embarquent MySQL et son profil AppArmor /usr/sbin/mysqld. Les Pods kind partagent le noyau
+      # du runner : ce profil s'applique aussi au mysqld de l'image mysql:8.0 et lui interdit de lire /etc/my.cnf.
+      # Le serveur écoute alors sur un autre socket que celui du client mysql (kubectl exec ... mysql échoue).
+      - name: Profil AppArmor mysqld du runner
+        run: |
+          if sudo aa-status | grep -q /usr/sbin/mysqld; then
+            echo "Profil AppArmor /usr/sbin/mysqld chargé : déchargement"
+            sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.mysqld
+          fi
+
       - name: Cluster Kubernetes (kind)
         uses: helm/kind-action@v1.15.1
         with:
@@ -95,16 +105,18 @@ jobs:
           curl -fsS -X POST http://localhost/api/user/add -H 'Content-Type: application/json' \
             -d '{"firstName":"Persist","lastName":"Test"}'
           echo
-          kubectl delete pod -l app=mysql --wait=true
-          # Le nouveau Pod démarre sur le même PV : la ligne doit toujours être là
-          for _ in $(seq 1 60); do
-            # shellcheck disable=SC2016  # variables développées dans le Pod MySQL
-            if rows=$(kubectl exec deploy/mysql -- sh -c \
-              'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -e "SELECT first_name FROM demo.user"' 2>/dev/null); then
-              break
-            fi
-            sleep 5
-          done
+          old_pod=$(kubectl get pod -l app=mysql -o jsonpath='{.items[0].metadata.name}')
+          # rollout restart applique la stratégie Recreate : l'ancien MySQL est arrêté avant que le nouveau démarre
+          # sur le même PV (après un "kubectl delete pod", le ReplicaSet les ferait tourner un instant ensemble)
+          kubectl rollout restart deploy/mysql
+          kubectl rollout status deploy/mysql --timeout=300s
+          new_pod=$(kubectl get pod -l app=mysql -o jsonpath='{.items[0].metadata.name}')
+          echo "Pod MySQL : $old_pod -> $new_pod"
+          [ "$new_pod" != "$old_pod" ]
+          kubectl logs deploy/mysql | grep 'ready for connections'
+          # shellcheck disable=SC2016  # variables développées dans le Pod MySQL
+          rows=$(kubectl exec deploy/mysql -- sh -c \
+            'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -e "SELECT first_name FROM demo.user"')
           echo "$rows"
           grep -qx Persist <<<"$rows"
 

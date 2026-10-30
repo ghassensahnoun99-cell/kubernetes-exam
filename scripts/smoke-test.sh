@@ -9,7 +9,7 @@ fail() { echo "ÉCHEC : $*" >&2; exit 1; }
 # L'Ingress et Spring Boot peuvent mettre un moment à répondre après un déploiement ou un redémarrage
 echo "==> Attente de l'API ($BASE_URL/api/user/all)"
 attempts=0
-until curl -fsS -o /dev/null "$BASE_URL/api/user/all"; do
+until curl -fs -o /dev/null "$BASE_URL/api/user/all"; do
   attempts=$((attempts + 1))
   [ "$attempts" -lt 60 ] || fail "l'API ne répond pas"
   sleep 5

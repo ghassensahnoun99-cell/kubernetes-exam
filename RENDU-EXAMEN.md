@@ -178,11 +178,13 @@ Vérification de la persistance :
 kubectl get pv,pvc                                   # mysql-pv Bound à default/mysql-pvc
 curl -X POST http://localhost/api/user/add -H 'Content-Type: application/json' \
      -d '{"firstName":"Persist","lastName":"Test"}'
-kubectl delete pod -l app=mysql                      # le Deployment recrée un Pod neuf
+kubectl rollout restart deploy/mysql                 # nouveau Pod MySQL, même PVC
 kubectl rollout status deploy/mysql
 kubectl exec deploy/mysql -- sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "SELECT * FROM demo.user"'
 # la ligne "Persist Test" est toujours présente
 ```
+
+`rollout restart` respecte la stratégie `Recreate` : l'ancien Pod est arrêté avant que le nouveau monte le volume. Avec un `kubectl delete pod`, le ReplicaSet crée le remplaçant **immédiatement**, pendant que l'ancien MySQL s'arrête encore : deux `mysqld` ouvrent alors les mêmes fichiers. Le verrou d'InnoDB les protège (`Unable to lock ./ibdata1 error: 11` dans les logs, jusqu'à ce que l'ancien libère les fichiers), mais il vaut mieux l'éviter.
 
 Limite : `hostPath` lie les données à **un** nœud, ce qui convient au cluster mono-nœud de Docker Desktop. Sur un cluster multi-nœuds, on utiliserait un stockage réseau (NFS, disque cloud) ou un PV `local` avec `nodeAffinity`.
 
@@ -315,10 +317,10 @@ scripts/smoke-test.sh
 Déclenché à chaque push sur `main`, à chaque pull request, ou à la main (`workflow_dispatch`). Un seul job reproduit les étapes de l'examen :
 
 1. **Build** : jar Spring Boot avec Java 17 (`./mvnw -B package -DskipTests`, cache Maven), puis les deux images avec les Dockerfiles du dépôt, sous les noms des manifests (`g4ss99/spring-app:1.0`, `g4ss99/angular-app:1.0`). Le cache des couches Docker est conservé entre deux exécutions.
-2. **Cluster** : création d'un cluster Kubernetes éphémère **kind** sur le runner, puis `kind load docker-image` des deux images. Grâce à `imagePullPolicy: IfNotPresent`, aucun registre n'est nécessaire.
+2. **Cluster** : création d'un cluster Kubernetes éphémère **kind** sur le runner (après avoir déchargé le profil AppArmor `mysqld` du runner Ubuntu : il s'appliquerait aussi au MySQL du Pod et l'empêcherait de lire `/etc/my.cnf`), puis `kind load docker-image` des deux images. Grâce à `imagePullPolicy: IfNotPresent`, aucun registre n'est nécessaire.
 3. **Déploiement** : `scripts/deploy.sh` avec `INGRESS_PROVIDER=kind`. Ce sont les mêmes manifests qu'en local ; seule change la variante du contrôleur ingress-nginx (hostPort 80 du nœud kind au lieu d'un LoadBalancer).
 4. **Tests** : `scripts/smoke-test.sh` sur `http://localhost`.
-5. **Persistance** : ajout d'une ligne, suppression du Pod MySQL, puis vérification que la ligne est toujours dans le nouveau Pod. Les tests sont relancés ensuite pour vérifier que l'application se rétablit.
+5. **Persistance** : ajout d'une ligne, `kubectl rollout restart deploy/mysql`, puis vérification que la ligne est toujours dans le nouveau Pod. Les tests sont relancés ensuite pour vérifier que l'application se rétablit.
 6. **Contenu du PV** : `scripts/pv-content.sh ls`, `dump` et `copy`. L'export SQL et le listing sont publiés comme artefact `pv-backup` (7 jours), téléchargeable depuis la page de l'exécution.
 7. **Diagnostic** en cas d'échec : `kubectl get/describe`, événements, logs de Spring Boot, MySQL et ingress-nginx.
 8. **Publication Docker Hub** : seulement sur un push vers `main`, une fois les tests passés, avec les tags `1.0` et `sha-<commit>`.
